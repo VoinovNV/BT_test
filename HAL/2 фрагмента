@@ -1,0 +1,51 @@
+/*
+1) ¬озможно переполнение буфера - никак не провер€етс€ на границы uart_rx_buff_size. 
+2) “.к HAL_UART_IRQHandler внутри вызывает неблокирующее чтение, вполне возможна гонка за ресурсами
+  
+*/
+#include <stdio.h>
+extern UART_HandleTypeDef huart1;
+uint8_t flag = 0;
+uint8_t uart_rx_buff[UART_BUFF];
+uint8_t uart_rx_buff_size;
+uint8_t command_recieved_flag;
+/* ќбработчик прерывани€ */
+void USART1_IRQHandler(void)
+{
+    uint32_t status = (READ_REG(huart1.Instance->SR) & USART_SR_RXNE);
+    HAL_UART_IRQHandler(&huart1);
+    if (status != RESET) {
+        uart_rx_buff_size++;
+        if (flag == 1) {
+            flag = 0;
+            if (uart_rx_buff[uart_rx_buff_size - 1] == '\n') {
+                command_recieved_flag = 1;
+                uart_rx_buff[uart_rx_buff_size] = 0x00;
+                uart_rx_buff_size = 0;
+                HAL_UART_AbortReceive_IT(&huart1);
+
+            }
+        }
+        if (uart_rx_buff[uart_rx_buff_size - 1] == '\r') {
+            r_flag = 1;
+        }
+    }
+}
+
+
+/*   
+¬ данном случае можно сразу декремент внести в вычисление (i-1)<<4: (--i)<<4 и избавитьс€ от i--;
+≈сли spimem_if_WIP() запрашивает состо€ние какого-то ресурса, то в таком цикле while (spimem_if_WIP()); будет слишком много запросов, что увеличит нагрузку.
+¬озможно в этой ситуации нужна задержка между запросами.
+*/
+void spimem_erase(void)
+{
+    uint32_t i=link_num>>2+1;
+    while (i > 0)
+    {
+        spimem_Write_EN();
+        spimem_Sector_Erase((--i)<<4);
+        while (spimem_if_WIP());
+    }
+}
+
